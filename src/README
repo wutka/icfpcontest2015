@@ -1,0 +1,10 @@
+This submission consists of two executables:
+textgame runs the tetris games and prints the resulting JSON to stdout. It doesn't yet support the command-line
+options, you just give it the name of the problem file as an argument.
+
+gfxgame visualizes the first game in a problem. Like textgame, it doesn't yet support the command-line options,
+it just takes the problem file as an argument.
+
+Although I used cabal to install some libraries, I didn't create a cabal package for the program. I added
+the cabal statements as an option to Makefile - "make init"
+
