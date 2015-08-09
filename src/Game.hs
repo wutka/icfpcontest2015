@@ -96,18 +96,14 @@ computeUnitStart' (x,y) width points =
               shape_width = max_x - min_x + 1
               target_minx = (width - shape_width) `div` 2
                
-
-
-
- 
-    
-    
-
 setCell x y v (Board w h cells) =
-          Board w h (cells V.// [(y * w + x, v)])
+    if ((x < 0) || (y < 0) || (x >= w) || (y >= h)) then
+        error ("Tried to set value at "++(show x)++","++(show y))
+    else
+        Board w h (cells V.// [(y * w + x, v)])
 
 getCell x y (Board w h cells) =
-          cells V.! (y * w + x)
+    cells V.! (y * w + x)
 
 normalizeUnit (Unit m (Cell px py)) =
     BoardUnit (map (transposeCellToXY transposeList) m)
@@ -363,6 +359,12 @@ tryApplyMove gameData move =
           b = applyMove gameData move
           (best_score, best_moves, best_board) = computeMoveList b
 
+shapeForRotation gameData n =
+    if n == 0 then shape else foldl' rotateOnce shape [1..n]
+        where
+          rotateOnce s _ = rotateBoardUnit s CLOCKWISE (rotate_map gameData)
+          shape = curr_unit gameData
+
 computeMoveList gameData =
     if null am then
         (lockedScore, [MOVE_SE], [locked])
@@ -380,60 +382,81 @@ computeMoveList gameData =
                   else
                       [(lockedScore, [head lockingMoves], [locked])]
 
-lockable gameData (x,y,(_,_,rot)) =
+lockable gameData (x,y,rot) =
     (canPlace pieceAtXY) && lockingMovesAvailable
         where
-          pieceAtXY = (removeUnitFromBoard gameData) { curr_unit = rot,
+          pieceAtXY = gameData { curr_unit = shapeForRotation gameData rot,
                                                        curr_unit_xy = (x,y) }
           am = availableMoves (placeUnitOnBoard pieceAtXY)
           lockingMovesAvailable = not . null $ filter (\m -> notElem m am) [MOVE_E, MOVE_W, MOVE_SE, MOVE_SW]
 
-unitRotations gameData =
-    foldl' addUniqueShape [] $ map rotateNTimes [(d,n) | n <- [0..5], d <- [CLOCKWISE, COUNTERCLOCKWISE]]
-        where
-          u = curr_unit gameData
-          rotateNTimes (d,n) = (d,n,foldl' (rotateOnce d) u [1..n])
-          rotateOnce d u _ = rotateBoardUnit u d (rotate_map gameData)
-          addUniqueShape shapes shape =
-              if uniqueShape shape shapes then
-                  shape : shapes
-              else
-                  shapes
-          uniqueShape shape shapes =
-              (find (shapeMatches shape) shapes) == Nothing
-          shapeMatches (_,_,s1) (_,_,s2) = s1 == s2
+numUnitRotations gameData = numUnitRotations' (curr_unit gameData) 1
+    where
+      numUnitRotations' unit 6 = 6
+      numUnitRotations' unit n =
+          if shapeForRotation gameData n == (curr_unit gameData) then
+              n
+          else
+              numUnitRotations' unit (n+1)
 
 makeLockLocationList gameData =
-    nub $ filter (lockable gameData) [(x,y,rots) | x <- [0..bw-1], y <- [0..bh-1], rots <- unitRotations gameData]
+    nub $ filter (lockable gameData) [(x,y,rot) | x <- [0..bw-1], y <- [0..bh-1], rot <- [0..(numRot-1)]]
         where
+          numRot = numUnitRotations gameData
           bd = board gameData
           bh = h bd
           bw = w bd
 
+lockingMoves gameData = filter (\m -> notElem m (availableMoves gameData)) [MOVE_E, MOVE_W, MOVE_SE, MOVE_SW]
+
+createLockedMove gameData (x,y,rot) =
+    ((x,y,rot),([lockDir], scoreLockedShape))
+        where
+          scoreLockedShape = scoreBoard . lockUnitOnBoard $ gameData { curr_unit = shape, curr_unit_xy = (x,y) }
+          lockDir = head $ lockingMoves gameData { curr_unit = shape, curr_unit_xy = (x,y) }
+          shape = shapeForRotation gameData rot
+
 initMoveMap gameData =
-    Map.fromList $ map createLockedMove (makeLockLocationList gameData)
-        where
-          createLockedMove (x,y,(d,n,shape)) = ((x,y),([lockDir (x,y) shape],d,n,scoreLockedShape (x,y) shape,shape))
-          scoreLockedShape (x,y) shape = scoreBoard . lockUnitOnBoard $ gameData { curr_unit = shape, curr_unit_xy = (x,y) }
-          lockDir (x,y) shape = head $ lockingMoves (removeUnitFromBoard $ gameData { curr_unit = shape, curr_unit_xy = (x,y) })
-          lockingMoves gameData = filter (\m -> notElem m (availableMoves gameData)) [MOVE_E, MOVE_W, MOVE_SE, MOVE_SW]
+    Map.fromList $ map (createLockedMove gameData) (makeLockLocationList gameData)
 
+addConnectingMoves gameData moveMap (x,y,rot) move_entry =
+    foldl' addMoveToMap moveMap (makeMoveList gameData (x,y,rot) move_entry)
+
+addMoveToMap moveMap ((x,y,rot),(move_list,score)) =
+    Map.insertWith pickBestScore (x,y,rot) (move_list,score) moveMap
+        where
+          pickBestScore (ml1,score1) (ml2,score2) =
+              if score1 > score2 then (ml1,score1) else (ml2,score2)
+    
 updateMoveMap gameData mm =
-    Map.foldlWithKey' addConnectingMoves mm mm
-        where
-          addConnectingMoves m2 (x,y) move_entry =
-              foldl' addToMap m2 (makeMoveList gameData (x,y) move_entry)
-          addToMap m3 ((x,y),(dirList,d,n,score,shape)) =
-              Map.insertWith pickBestScore (x,y) (dirList,d,n,score,shape) m3
-          pickBestScore (dl1,d1,n1,score1,shape1) (dl2,d2,n2,score2,shape2) =
-              if score1 > score2 then (dl1,d1,n1,score1,shape1) else (dl2,d2,n2,score2,shape2)
+    Map.foldlWithKey' (addConnectingMoves gameData) mm mm
 
-makeMoveList gameData (x,y) (dirList,d,n,score,shape) =
-    filter isValidMove (map makeMove [(NE,MOVE_SW),(NW,MOVE_SE),(E,MOVE_W),(W,MOVE_E)])
+makeRotation fromRot toRot =
+    List.replicate (abs numRots) direction
         where
-          makeMove (backDir,forwardDir) = ((getCellByDir x y backDir),(forwardDir:dirList,d,n,score,shape))
-          isValidMove ((x,y),(_,_,_,_,shape)) =
-              canPlace $ (removeUnitFromBoard gameData) { curr_unit = shape, curr_unit_xy = (x,y) }
+          rotDiff = toRot - fromRot
+          numRots = if rotDiff < -2 then
+                        rotDiff + 6
+                    else if rotDiff > 3 then
+                        rotDiff - 6
+                    else rotDiff
+          direction = if numRots < 0 then MOVE_CLOCKWISE else MOVE_COUNTERCLOCKWISE
+
+makeMoveList gameData (x,y,rot) (move_list,score) =
+    filter isValidMove (makeLocationMoves ++ makeRotationMoves)
+        where
+          makeLocationMoves = map makeLocationMove [(NE,MOVE_SW),(NW,MOVE_SE),(E,MOVE_W),(W,MOVE_E)]
+          makeLocationMove (backDir,forwardDir) = (backCell backDir rot, (forwardDir:move_list,score))
+          backCell backDir rot = mergeTuple (getCellByDir x y backDir) rot
+          mergeTuple (a,b) c = (a,b,c)
+          makeRotationMoves = 
+              if numRots < 2 then []
+              else makeClockwise ++ makeCounterClockwise
+          makeClockwise = [((x,y,(rot+5) `mod` 6), (MOVE_CLOCKWISE : move_list, score))]
+          makeCounterClockwise = [((x,y,(rot+1) `mod` 6), (MOVE_COUNTERCLOCKWISE : move_list, score))]
+          numRots = numUnitRotations gameData
+          isValidMove ((x,y,rot),_) =
+              canPlace $ gameData { curr_unit = shapeForRotation gameData rot, curr_unit_xy = (x,y) }
               
 completeMoveMap gameData oldMap =
     if (old_size == new_size) && (old_score == new_score) then
@@ -447,18 +470,20 @@ completeMoveMap gameData oldMap =
               new_size = Map.size newMap
               new_score = score_map newMap
               score_map m = Map.foldl' add_score 0 m
-              add_score s (_,_,_,s2,_) = s + s2
+              add_score s (_,s2) = s + s2
 
 createMoveMap gameData =
-    completeMoveMap gameData (initMoveMap gameData)
+    completeMoveMap gameDataNoUnit (initMoveMap gameDataNoUnit)
+        where
+          gameDataNoUnit = removeUnitFromBoard gameData
 
 applyMoveList gameData moveMap =
 --    foldl' applyMove gameData (moveDirs $ moveMap Map.! (curr_unit_xy gameData))
-    foldl' applyMove gameData (moveDirs $ moveMap `traceMapGet` (curr_unit_xy gameData))
+    foldl' applyMove gameData (moveList getInitialMove)
         where
-          moveDirs (dirs, d, n, _, _) = (initialRotate d n) ++ dirs
-          initialRotate CLOCKWISE n = replicate n MOVE_CLOCKWISE
-          initialRotate COUNTERCLOCKWISE n = replicate n MOVE_COUNTERCLOCKWISE
+          getInitialMove = moveMap `traceMapGet` (fst startLoc, snd startLoc, 0)
+          startLoc = curr_unit_xy gameData
+          moveList (ml,_) = ml
 
 placeUnitAndHistory g =
     pp { board_history = (board pp) : (board_history pp) }

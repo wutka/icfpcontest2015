@@ -60,5 +60,4 @@ main = do
 
   let boardList = reverse $ full_board_history g2
 --  putStrLn $ unlines (map show boardList)
-  putStrLn $ show game1
-  simulate (InWindow "Hextris" (420, 700) (10, 10)) black speed boardList drawBoard modelStep
+  seq (take 1 boardList) (simulate (InWindow "Hextris" (420, 700) (10, 10)) black speed boardList drawBoard modelStep)
