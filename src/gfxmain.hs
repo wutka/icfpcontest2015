@@ -48,9 +48,11 @@ modelStep _ t [] = []
 modelStep _ t [x] = [x]
 modelStep _ t (x:xs) = xs
 
+
 main = do
   args <- getArgs
   fileData <- readFile (head args)
+  let speed = if length args > 1 then (read (args !! 1)) :: Int else 8
   let config = decodeJSON fileData :: GameConfig
   let games = initGames config
   let game1 = head games
@@ -59,4 +61,4 @@ main = do
   let boardList = reverse $ full_board_history g2
 --  putStrLn $ unlines (map show boardList)
   putStrLn $ show game1
-  simulate (InWindow "Hextris" (420, 700) (10, 10)) black 1 boardList drawBoard modelStep
+  simulate (InWindow "Hextris" (420, 700) (10, 10)) black speed boardList drawBoard modelStep

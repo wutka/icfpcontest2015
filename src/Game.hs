@@ -9,7 +9,9 @@ import Text.JSON.Generic
 import Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Vector as V
+import Data.Maybe
 import ICFPRandom
+import Debug.Trace
 
 data Cell = Cell { x :: Int, y :: Int } deriving (Show, Data, Typeable)
 
@@ -42,7 +44,7 @@ data GameData = GameData { board :: Board, rotate_map :: Map.Map (RotateDirectio
                            move_list :: [Move], ls_old :: Int, score :: Int, board_history :: [Board],
                            full_board_history :: [Board], game_seed :: Int
                          } deriving Show
-                                    
+
 initBoard :: Int -> Int -> Board
 initBoard width height =
     Board width height (V.fromList (replicate (width*height) Empty))
@@ -56,7 +58,8 @@ initBoardFromConfig (GameConfig _ _ width height filled _ _) =
 initGames gameConfig = map (initGame gameConfig) (sourceSeeds gameConfig)
 
 initGame gameConfig seed =
-    placeUnitOnBoard $ initGame' gameConfig seed
+    let startBoard = placeUnitOnBoard $ initGame' gameConfig seed in
+    startBoard { board_history = [board startBoard] }
 
 initGame' gameConfig seed =
     GameData (initBoardFromConfig gameConfig) rotateMap (head unit_list) unitStart 
@@ -69,13 +72,36 @@ initGame' gameConfig seed =
                     unit_num_list = map (\n -> n `mod` numUnits) (take (sourceLength gameConfig) (randomNumbers seed))
                     unit_list = map (\n -> normalizedUnits List.!! n) unit_num_list           
 
-computeUnitStart width (BoardUnit p) =
-    (-min_x + ((width - (max_x - min_x)) `div` 2), -min_y)
-        where
-          min_x = List.minimum $ map fst p
-          max_x = List.maximum $ map fst p
-          min_y = List.minimum $ map snd p
+--computeUnitStart width (BoardUnit p) =
+--    (((width - (max_x - min_x) - 1) `div` 2), -min_y)
+--        where
+--          min_x = List.minimum $ map fst p
+--          max_x = List.maximum $ map fst p
+--          min_y = List.minimum $ map snd p
 
+computeUnitStart width (BoardUnit p) = computeUnitStart' (width `div` 2, 0) width p
+
+computeUnitStart' (x,y) width points =
+    if min_y < 0 then
+        computeUnitStart' (getCellByDir x y SW) width points
+    else if min_y > 0 then
+        computeUnitStart' (getCellByDir x y NW) width points
+    else 
+        (x+(target_minx-min_x),y)
+            where
+              placed_points = computeUnitPlacement (x,y) points
+              min_y = List.minimum $ map snd placed_points
+              min_x = List.minimum $ map fst placed_points
+              max_x = List.maximum $ map fst placed_points
+              shape_width = max_x - min_x + 1
+              target_minx = (width - shape_width) `div` 2
+               
+
+
+
+ 
+    
+    
 
 setCell x y v (Board w h cells) =
           Board w h (cells V.// [(y * w + x, v)])
@@ -133,11 +159,19 @@ createRotateMovesAtDepth direction depth =
           createRotateMovesForSection dir = createRotateMovesForSection' depth dir (dirNTimes (0,0) dir depth)
           createRotateMovesForSection' 0 dir pos = []
           createRotateMovesForSection' n dir (x,y) = ((direction,x,y), getRotateMoveList direction depth n (rotateDir direction dir)) : (createRotateMovesForSection' (n-1) dir (getCellByDir x y (rotateDir direction dir)))
-                     
+
+traceMapGet m k =
+    let v = Map.lookup k m in
+    if isJust v then
+        fromJust v
+    else
+        error ("Error looking for "++(show k)++" in map "++(show m))
+
 rotateBoardUnit (BoardUnit points) direction rotateMap =
     BoardUnit (map (rotatePoint rotateMap direction) points)
         where
-          rotatePoint rotateMap direction (x,y) = transposeXY (rotateMap Map.! (direction,x,y)) (x,y)
+          rotatePoint rotateMap direction (x,y) = transposeXY (rotateMap `traceMapGet` (direction,x,y)) (x,y)
+--          rotatePoint rotateMap direction (x,y) = transposeXY (rotateMap Map.! (direction,x,y)) (x,y)
               
                 
 getDistance p1 p2 =
@@ -167,6 +201,12 @@ transposeCellToXY tl (Cell x y) = transposeXY tl (x,y)
 transposeXY [] (fromx, fromy) = (fromx, fromy)
 transposeXY (t:ts) (fromx, fromy) =
     transposeXY ts (getCellByDir fromx fromy t)
+
+computeTransposeFromNormal (center_x, center_y) (x,y) =
+    transposeXY (getTransposeList (0,0) (x,y)) (center_x, center_y)
+
+computeUnitPlacement (center_x, center_y) points =
+    map (computeTransposeFromNormal (center_x,center_y)) points
 
 getBestDir (fromx,fromy) (tox,toy) =
     if fromy == toy then
@@ -210,7 +250,7 @@ clearRow (Board w h cells) y =
                        (pos, v)
 
 isRowFull (Board w h cells) y =
-    V.notElem Empty (V.slice (y * w) w cells)
+    Nothing == V.find ((/=) Locked) (V.slice (y * w) w cells)
 
 fullRows (Board w h cells) =
     filter (isRowFull (Board w h cells)) [0..h-1]
@@ -226,33 +266,33 @@ boardToList (Board w h cells) =
 removeUnitFromBoard gameData =
     gameData { board = foldl' removeUnitSquare bd u_xy }
         where
-          removeUnitSquare board (x,y) = setCell (x+u_x) (y+u_y) Empty board
-          u_xy = unit_xy $ curr_unit gameData
+          removeUnitSquare board (x,y) = setCell x y Empty board
+          u_xy = computeUnitPlacement (curr_unit_xy gameData) (unit_xy $ curr_unit gameData)
           (u_x, u_y) = curr_unit_xy gameData
           bd = board gameData
 
 placeUnitOnBoard gameData =
-    gameData { board = setCell u_x u_y Piece_Pivot (foldl' placeUnitSquare bd u_xy) }
+    gameData { board = foldl' placeUnitSquare bd u_xy }
         where
-          placeUnitSquare board (x,y) = setCell (x+u_x) (y+u_y) Piece bd
-          u_xy = unit_xy $ curr_unit gameData
+          placeUnitSquare board (x,y) = setCell x y Piece board
+          u_xy = computeUnitPlacement (curr_unit_xy gameData) (unit_xy $ curr_unit gameData)
           (u_x, u_y) = curr_unit_xy gameData
           bd = board gameData
 
 lockUnitOnBoard gameData =
     gameData { board = foldl' lockUnitSquare bd u_xy }
         where
-          lockUnitSquare board (x,y) = setCell (x+u_x) (y+u_y) Locked bd
-          u_xy = unit_xy $ curr_unit gameData
+          lockUnitSquare board (x,y) = setCell x y Locked board
+          u_xy = computeUnitPlacement (curr_unit_xy gameData) (unit_xy $ curr_unit gameData)
           (u_x, u_y) = curr_unit_xy gameData
           bd = board gameData
 
 canPlace gameData =
     (List.all cellOK u_xy) && ((List.find ((/=) Empty) (map getUnitCell u_xy)) == Nothing)
         where
-          getUnitCell (x,y) = getCell (u_x+x) (u_y+y) bd
-          cellOK (x,y) = (u_x + x >= 0) && (u_x + x < w bd) && (u_y + y >= 0) && (u_y + y < h bd)
-          u_xy = unit_xy $ curr_unit gameData
+          getUnitCell (x,y) = getCell x y bd
+          cellOK (x,y) = (x >= 0) && (x < w bd) && (y >= 0) && (y < h bd)
+          u_xy = computeUnitPlacement (curr_unit_xy gameData) (unit_xy $ curr_unit gameData)
           (u_x, u_y) = curr_unit_xy gameData
           bd = board gameData
 
@@ -266,7 +306,7 @@ movePiece MOVE_COUNTERCLOCKWISE gameData = gameData { curr_unit = rotateBoardUni
 isHole (Board w h cells) (x,y) =
     if y == h-1 then
         False
-    else if (cellValue /= Empty) && (belowCell == Empty) then
+    else if (cellValue == Locked) && (belowCell == Empty) then
              True
          else
              False
@@ -278,13 +318,14 @@ scoreBoard gameData =
     (countLocked bd) + (countHoles bd) + (countFull bd)
         where
           countLocked (Board w h cells) = List.sum . V.toList $ V.imap cellValue cells
-          countHoles (Board w h cells) = (-2) * (List.length $ List.filter (isHole bd) [(x,y) | x <- [0..bw-1],
+          countHoles (Board w h cells) = (-bh) * (List.length $ List.filter (isHole bd) [(x,y) | x <- [0..bw-1],
                                                                                   y <- [0..bh-1]])
-          countFull board = 4 * (List.length $ fullRows board)
-          cellValue i v = if v /= Locked then 0 else (i `div` bw)
+          countFull board = 100 * bh * (List.length $ fullRows board) * (List.length $ fullRows board)
+          cellValue i v = if v /= Locked then 0 else rowWeight i
           bd = board gameData
           bw = w bd
           bh = h bd
+          rowWeight i = (i - (bh `div` 2))
               
 scoreGame gameData =
     gameData { score = (score gameData) + moveScore,
@@ -311,7 +352,7 @@ applyMove gameData move =
             if canMove gameData move then
                 placeUnitOnBoard . (movePiece move) $ removeUnitFromBoard gameData 
             else
-                lockUnitOnBoard gameData in
+                lockUnitOnBoard $ removeUnitFromBoard gameData in
     let gameData3 = gameData2 { board_history = (board gameData2) : (board_history gameData2) } in
     let gameData4 = scoreGame gameData3 in
     gameData4 { move_list = move : move_list gameData4 }
@@ -324,19 +365,20 @@ tryApplyMove gameData move =
 
 computeMoveList gameData =
     if null am then
-        (score lockAndScore, [MOVE_SE], [lockAndScore])
+        (lockedScore, [MOVE_SE], [locked])
     else
         List.maximumBy compareScores ((map (tryApplyMove gameData) am) ++ canLock)
             where
               am = availableMoves gameData
               compareScores (am1,_,_) (am2,_,_) = compare am1 am2
-              lockAndScore = scoreGame $ lockUnitOnBoard gameData
+              locked = lockUnitOnBoard gameData
+              lockedScore = scoreBoard locked
               lockingMoves = filter (\m -> notElem m am) [MOVE_E, MOVE_W, MOVE_SE, MOVE_SW]
               canLock =
                   if null lockingMoves then
                       []
                   else
-                      [(score lockAndScore, [head lockingMoves], [lockAndScore])]
+                      [(lockedScore, [head lockingMoves], [locked])]
 
 lockable gameData (x,y,(_,_,rot)) =
     (canPlace pieceAtXY) && lockingMovesAvailable
@@ -345,8 +387,6 @@ lockable gameData (x,y,(_,_,rot)) =
                                                        curr_unit_xy = (x,y) }
           am = availableMoves (placeUnitOnBoard pieceAtXY)
           lockingMovesAvailable = not . null $ filter (\m -> notElem m am) [MOVE_E, MOVE_W, MOVE_SE, MOVE_SW]
-          rotateNTimes u n = foldl' rotateOnce u [1..n]
-          rotateOnce u _ = rotateBoardUnit u CLOCKWISE (rotate_map gameData)
 
 unitRotations gameData =
     foldl' addUniqueShape [] $ map rotateNTimes [(d,n) | n <- [0..5], d <- [CLOCKWISE, COUNTERCLOCKWISE]]
@@ -373,8 +413,8 @@ makeLockLocationList gameData =
 initMoveMap gameData =
     Map.fromList $ map createLockedMove (makeLockLocationList gameData)
         where
-          createLockedMove (x,y,(d,n,shape)) = ((x,y),([lockDir (x,y) shape],d,n,lockShape (x,y) shape,shape))
-          lockShape (x,y) shape = scoreBoard . lockUnitOnBoard $ gameData { curr_unit = shape, curr_unit_xy = (x,y) }
+          createLockedMove (x,y,(d,n,shape)) = ((x,y),([lockDir (x,y) shape],d,n,scoreLockedShape (x,y) shape,shape))
+          scoreLockedShape (x,y) shape = scoreBoard . lockUnitOnBoard $ gameData { curr_unit = shape, curr_unit_xy = (x,y) }
           lockDir (x,y) shape = head $ lockingMoves (removeUnitFromBoard $ gameData { curr_unit = shape, curr_unit_xy = (x,y) })
           lockingMoves gameData = filter (\m -> notElem m (availableMoves gameData)) [MOVE_E, MOVE_W, MOVE_SE, MOVE_SW]
 
@@ -413,27 +453,36 @@ createMoveMap gameData =
     completeMoveMap gameData (initMoveMap gameData)
 
 applyMoveList gameData moveMap =
-    foldl' applyMove gameData (moveDirs $ moveMap Map.! (curr_unit_xy gameData))
+--    foldl' applyMove gameData (moveDirs $ moveMap Map.! (curr_unit_xy gameData))
+    foldl' applyMove gameData (moveDirs $ moveMap `traceMapGet` (curr_unit_xy gameData))
         where
           moveDirs (dirs, d, n, _, _) = (initialRotate d n) ++ dirs
           initialRotate CLOCKWISE n = replicate n MOVE_CLOCKWISE
           initialRotate COUNTERCLOCKWISE n = replicate n MOVE_COUNTERCLOCKWISE
 
-runGame gameData =
-    if canStartNextPiece nextRound then
-        runGame $ startNextPiece nextRound
+placeUnitAndHistory g =
+    pp { board_history = (board pp) : (board_history pp) }
+        where
+          pp = placeUnitOnBoard g
+
+startNextUnit gameData = gameData { curr_unit = head $ remaining_units gameData,
+                                    curr_unit_xy = computeUnitStart bw (head $ remaining_units gameData),
+                                    remaining_units = tail $ remaining_units gameData,
+                                    full_board_history = (board_history gameData) ++ (full_board_history gameData),
+                                    board_history = [] }
+    where bw = w (board gameData)
+
+canStartNextUnit gameData = (not . null $ remaining_units gameData) && (canPlace $ startNextUnit gameData)
+
+stepGame gameData = placeUnitAndHistory . startNextUnit $ applyMoveList gameData (createMoveMap gameData)
+
+runGame gameData = 
+    if canStartNextUnit nextRound then
+        runGame $ placeUnitAndHistory (startNextUnit nextRound)
     else
         nextRound
             where
               nextRound = applyMoveList gameData (createMoveMap gameData)
-              canStartNextPiece g = canPlace $ startNextPiece g
-              startNextPiece g = g { curr_unit = head $ remaining_units g,
-                                     curr_unit_xy = computeUnitStart (bw g) (head $ remaining_units g),
-                                     remaining_units = tail $ remaining_units g,
-                                     full_board_history = (board_history g) ++ (full_board_history g),
-                                     board_history = [] }
-              bw g = w $ board g
-
     
 getBoard gameData [] = []
 getBoard gameData (m:ml) =
