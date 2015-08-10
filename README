@@ -1,0 +1,10 @@
+This is my solution for the 2015 ICFP Programming Contest.
+
+Game.hs contains the game logic
+textmain.hs contains the main program for reading a problem file and writing a solution
+gfxmain.hs uses the Gloss library to show the animation for a game
+showboard.hs uses Gloss to show the initial state of a board
+
+At the end of the contest the program still had some bugs where it wasn't ruling out certain kinds of
+illegal moves, and because of that I wasn't able to turn on the logic for trying to incorporate power phrases
+into the move sequence other than a weak post-processor.
