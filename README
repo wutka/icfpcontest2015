@@ -8,3 +8,7 @@ showboard.hs uses Gloss to show the initial state of a board
 At the end of the contest the program still had some bugs where it wasn't ruling out certain kinds of
 illegal moves, and because of that I wasn't able to turn on the logic for trying to incorporate power phrases
 into the move sequence other than a weak post-processor.
+
+The program relies on a few libraries that must be installed with cabal, and in the heat of the moment
+I didn't use any of the Haskell build systems, but just stick with make, so "make init" will run the
+cabal commands for the libraries, and then "make" will build the executables. 
