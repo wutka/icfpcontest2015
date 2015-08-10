@@ -311,7 +311,7 @@ isHole (Board w h cells) (x,y) =
                    belowCell = getCell x (y+1) (Board w h cells)
 
 scoreBoard gameData =
-    10 * ((countLocked bd) + (countHoles bd) + (countFull bd))
+    (countLocked bd) + (countHoles bd) + (countFull bd)
         where
           countLocked (Board w h cells) = List.sum . V.toList $ V.imap cellValue cells
           countHoles (Board w h cells) = (-bh) * (List.length $ List.filter (isHole bd) [(x,y) | x <- [0..bw-1],
@@ -432,12 +432,35 @@ bestMatchLength heads1 tails1 =
           tailList = if length tails2 <= length heads1 then tails2
                      else drop ((length tails2) - (length heads1)) tails2
           
-powerWordScore gameData moveList =
+powerWordPrefixScore gameData moveList =
     sum $ map (bestMatchLength (reverse (inits moveList))) (powerWordMoves gameData)
 
-pickBestScore gameData (ml1,score1,_,_) (ml2,score2,enhancedScore2,_) =
-    if score1+enhancedScore1 > score2+enhancedScore1 then (ml1, score1, enhancedScore1, True) 
-    else (ml2,score2,enhancedScore2,False)
+matchUpTo [] [] = True
+matchUpTo _ [] = True
+matchUpTo [] _ = False
+matchUpTo (m:mm) (p:pp) =
+    if p == m then
+        matchUpTo pp mm
+    else
+        False
+
+powerWordScore gameData ml =
+    let pw = find (matchUpTo ml) (powerWordMoves gameData) in
+    if isNothing pw then
+        0
+    else
+        length $ fromJust pw
+
+--pickBestScore gameData (ml1,score1,_,_) (ml2,score2,enhancedScore2,changed2) =
+--    if fixedScore1+enhancedScore1 > score2+enhancedScore2 then (ml1, score1, enhancedScore1, True) 
+--    else (ml2,score2,enhancedScore2,changed2)
+--        where
+--          enhancedScore1 = powerWordPrefixScore gameData ml1
+--          fixedScore1 = score1 + (powerWordScore gameData ml1)
+
+pickBestScore gameData (ml1,score1,_,_) (ml2,score2,_,changed2) =
+    if score1 > score2 then (ml1, score1, 0, True) 
+    else (ml2,score2,0,changed2)
         where
           enhancedScore1 = score1 + (powerWordScore gameData ml1)
 

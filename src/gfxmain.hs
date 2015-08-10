@@ -57,8 +57,10 @@ main = do
   let pp = ["bap","aaplaap","bkaalka","alal","paplalkallalkplabalbkaklakldplbbalkaaaplaallbakaalp"]
   let games = initGames config pp
   let game1 = head games
-  let g2 = runGame game1
+  let gs = map runGame games
+  let bh = map full_board_history gs
+  let boardList = concatMap reverse bh
 
-  let boardList = reverse $ full_board_history g2
+--  let boardList = reverse $ full_board_history bs
 --  putStrLn $ unlines (map show boardList)
   seq (take 1 boardList) (simulate (InWindow "Hextris" (420, 700) (10, 10)) black speed boardList drawBoard modelStep)
