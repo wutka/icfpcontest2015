@@ -73,7 +73,8 @@ main = do
   let textGameConfig = parseArgs args newConfig
   fileData <- readFile (filename textGameConfig)
   let config = decodeJSON fileData :: GameConfig
-  let games = initGames config
+  let games = initGames config []
+--  let games = initGames config (map powerPhraseToCanonical (powerPhrases textGameConfig))
   let finished_games = map runGame games
   let solutions = map (gameToSolution config) finished_games
   let powerCanonical = canonicalPowerPhrases $ powerPhrases textGameConfig

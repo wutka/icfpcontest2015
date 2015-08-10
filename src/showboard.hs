@@ -54,11 +54,8 @@ main = do
   fileData <- readFile (head args)
   let speed = if length args > 1 then (read (args !! 1)) :: Int else 8
   let config = decodeJSON fileData :: GameConfig
-  let pp = ["bap","aaplaap","bkaalka","alal","paplalkallalkplabalbkaklakldplbbalkaaaplaallbakaalp"]
-  let games = initGames config pp
+  let games = initGames config []
   let game1 = head games
-  let g2 = runGame game1
 
-  let boardList = reverse $ full_board_history g2
 --  putStrLn $ unlines (map show boardList)
-  seq (take 1 boardList) (simulate (InWindow "Hextris" (420, 700) (10, 10)) black speed boardList drawBoard modelStep)
+  display (InWindow "Hextris" (420, 700) (10, 10)) black (drawBoard [(board game1)])
