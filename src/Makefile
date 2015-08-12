@@ -12,6 +12,7 @@ showboard: showboard.hs Game.hs ICFPRandom.hs
 	ghc -o showboard showboard.hs Game.hs ICFPRandom.hs
 
 init:
-	cabal install -p json
-	cabal install -p gloss
-	cabal install -p MissingH
+	cabal install json
+	cabal install gloss
+	cabal install MissingH
+	cabal install vector
